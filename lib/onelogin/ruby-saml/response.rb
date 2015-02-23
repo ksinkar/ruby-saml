@@ -20,6 +20,7 @@ module OneLogin
       attr_reader :document
       attr_reader :decoded_response
       attr_reader :decrypted_response
+      attr_reader :decoded_document
       
       def initialize(response, options = {})
         @errors = []
@@ -29,6 +30,7 @@ module OneLogin
         @decrypted_response = decrypt_saml(@decoded_response, @options[:private_key_file_path])
         @response = @decrypted_response
         @document = XMLSecurity::SignedDocument.new(@response, @errors)
+        @decoded_document = XMLSecurity::SignedDocument.new(@decoded_response, @errors)
       end
 
       def is_valid?
@@ -138,11 +140,11 @@ module OneLogin
       private
 
       def validate(soft = true)
-        valid_saml?(document, soft)      &&
+        valid_saml?(decoded_document, soft)      &&
         validate_response_state(soft) &&
         validate_conditions(soft)     &&
         validate_issuer(soft)         &&
-        document.validate_document(get_fingerprint, soft) &&
+        decoded_document.validate_document(get_fingerprint, soft) &&
         validate_success_status(soft)
       end
 
@@ -199,6 +201,18 @@ module OneLogin
             { "p" => PROTOCOL, "a" => ASSERTION },
             { 'id' => document.signed_element_id }
         )
+        node ||= REXML::XPath.first(
+            document,
+            "/p:Response/a:assertion[@ID=$id]#{subelt}",
+            { "p" => PROTOCOL, "a" => ASSERTION },
+            { 'id' => document.signed_element_id }
+        )
+        node ||= REXML::XPath.first(
+            document,
+            "/p:Response[@ID=$id]/a:assertion#{subelt}",
+            { "p" => PROTOCOL, "a" => ASSERTION },
+            { 'id' => document.signed_element_id }
+        ) 
         node
       end
 

@@ -16,6 +16,7 @@ module OneLogin
       attr_accessor :idp_slo_target_url
       attr_accessor :idp_cert
       attr_accessor :idp_cert_fingerprint
+      attr_accessor :idp_sso_is_encrypted
       # SP Data
       attr_accessor :issuer
       attr_accessor :assertion_consumer_service_url

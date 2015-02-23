@@ -4,8 +4,8 @@ require 'base64'
 require "nokogiri"
 require "rexml/document"
 require "rexml/xpath"
-require "thread"
 require "xmlenc"
+require "thread"
 
 module OneLogin
   module RubySaml
@@ -40,7 +40,7 @@ module OneLogin
 
       def decrypt_saml(decoded_saml, private_key_file_path=nil)
         noko_xml = Nokogiri::XML(decoded_saml)
-        if ((noko_xml.xpath('//saml:EncryptedAssertion', {:saml => "urn:oasis:names:tc:SAML:2.0:assertion"}).count > 0) && !private_key_file_path.nil?)
+        if ((noko_xml.xpath('//saml:EncryptedAssertion', {:saml => ASSERTION}).count > 0) && !private_key_file_path.nil?)
           key_pem = File.read(private_key_file_path)
           encrypted_response = Xmlenc::EncryptedDocument.new(decoded_saml)
           private_key = OpenSSL::PKey::RSA.new(key_pem)
@@ -48,15 +48,23 @@ module OneLogin
           decrypted_doc = Nokogiri::XML(decrypted_string) do |config|
             # config.strict.nonet # for an ideal world
           end
-          saml_namespace = { :saml => ASSERTION }
+          saml_namespace = {:saml => ASSERTION}
           assertion = decrypted_doc.xpath("//saml:EncryptedAssertion/saml:Assertion", saml_namespace)
           assertion = decrypted_doc.xpath("//saml:assertion", saml_namespace) if assertion.empty?
           assertion = decrypted_doc.xpath("//saml:Assertion", saml_namespace) if assertion.empty?
           assertion = decrypted_doc.xpath("//saml:ASSERTION", saml_namespace) if assertion.empty?
+
+          encrypted_assertion = decrypted_doc.xpath("//saml:EncryptedAssertion", saml_namespace)
+          encrypted_assertion = decrypted_doc.xpath("//saml:encryptedassertion", saml_namespace) if encrypted_assertion.empty?
+          encrypted_assertion = decrypted_doc.xpath("//saml:Encryptedassertion", saml_namespace) if encrypted_assertion.empty?
+          encrypted_assertion = decrypted_doc.xpath("//saml:ENCRYPTEDASSERTION", saml_namespace) if encrypted_assertion.empty?
+
           if assertion.empty?
             validation_error("XML document seems to be malformed and does not have correct Nodes")
           else
-            return assertion.first.to_s.gsub(" ", '').gsub("\n", '')
+            encrypted_assertion.remove
+            decrypted_xml.root.add_child(assertion.last)
+            return decrypted_xml.to_xml.squish
           end
         end
         return decoded_saml
