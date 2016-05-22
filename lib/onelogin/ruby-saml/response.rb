@@ -20,6 +20,7 @@ module OneLogin
       attr_reader :document
       attr_reader :decoded_response
       attr_reader :decrypted_response
+      attr_reader :decoded_document
       
       def initialize(response, options = {})
         @errors = []
@@ -29,6 +30,7 @@ module OneLogin
         @decrypted_response = decrypt_saml(@decoded_response, @options[:private_key_file_path])
         @response = @decrypted_response
         @document = XMLSecurity::SignedDocument.new(@response, @errors)
+        @decoded_document = XMLSecurity::SignedDocument.new(@decoded_response, @errors)
       end
 
       def is_valid?
@@ -54,7 +56,7 @@ module OneLogin
       def sessionindex
         @sessionindex ||= begin
           node = xpath_first_from_signed_assertion('/a:AuthnStatement')
-          node.nil? ? nil : node.attributes['SessionIndex']
+          node.nil? ? nil : (node.attributes['SessionIndex'] ? node.attributes['SessionIndex'] : node.attributes['sessionindex'])
         end
       end
 
@@ -77,7 +79,7 @@ module OneLogin
           return attributes if stmt_element.nil?
 
           stmt_element.elements.each do |attr_element|
-            name  = attr_element.attributes["Name"]
+            name  = attr_element.attributes["Name"] ? attr_element.attributes["Name"] : attr_element.attributes["name"]
             values = attr_element.elements.collect{|e|
               # SAMLCore requires that nil AttributeValues MUST contain xsi:nil XML attribute set to "true" or "1"
               # otherwise the value is to be regarded as empty.
@@ -103,7 +105,7 @@ module OneLogin
       def success?
         @status_code ||= begin
           node = REXML::XPath.first(document, "/p:Response/p:Status/p:StatusCode", { "p" => PROTOCOL, "a" => ASSERTION })
-          node.attributes["Value"] == "urn:oasis:names:tc:SAML:2.0:status:Success"
+          node.attributes["Value"] == "urn:oasis:names:tc:SAML:2.0:status:Success" || node.attributes["value"] == "urn:oasis:names:tc:SAML:2.0:status:Success"
         end
       end
 
@@ -138,11 +140,11 @@ module OneLogin
       private
 
       def validate(soft = true)
-        valid_saml?(document, soft)      &&
+        valid_saml?(decoded_document, soft)      &&
         validate_response_state(soft) &&
         validate_conditions(soft)     &&
         validate_issuer(soft)         &&
-        document.validate_document(get_fingerprint, soft) &&
+        decoded_document.validate_document(get_fingerprint, soft) &&
         validate_success_status(soft)
       end
 
@@ -199,6 +201,24 @@ module OneLogin
             { "p" => PROTOCOL, "a" => ASSERTION },
             { 'id' => document.signed_element_id }
         )
+        node ||= REXML::XPath.first(
+            document,
+            "/p:Response/a:assertion[@ID=$id]#{subelt}",
+            { "p" => PROTOCOL, "a" => ASSERTION },
+            { 'id' => document.signed_element_id }
+        )
+        node ||= REXML::XPath.first(
+            document,
+            "/p:Response[@ID=$id]/a:assertion#{subelt}",
+            { "p" => PROTOCOL, "a" => ASSERTION },
+            { 'id' => document.signed_element_id }
+        ) 
+        node ||= REXML::XPath.first(
+            document,
+            "/p:Response[@ID=$id]/a:assertion#{subelt.downcase}",
+            { "p" => PROTOCOL, "a" => ASSERTION },
+            { 'id' => document.signed_element_id }
+        ) 
         node
       end
 
@@ -240,8 +260,9 @@ module OneLogin
       end
 
       def parse_time(node, attribute)
-        if node && node.attributes[attribute]
-          Time.parse(node.attributes[attribute])
+        if node
+          attrs = node.attributes[attribute] ? node.attributes[attribute] : node.attributes[attribute.downcase]
+          Time.parse(attrs) if attrs
         end
       end
     end
